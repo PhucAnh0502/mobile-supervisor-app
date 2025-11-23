@@ -62,7 +62,13 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Đăng ký thành công'), backgroundColor: Colors.green),
           );
-          Navigator.of(context).pushReplacementNamed('/');
+          // Navigate to DeviceInfoScreen (provide the bloc) after successful registration
+          Navigator.of(context).pushReplacement(MaterialPageRoute(
+            builder: (ctx) => BlocProvider(
+              create: (_) => DeviceInfoBloc(DeviceInfoService()),
+              child: const DeviceInfoScreen(),
+            ),
+          ));
         }
       } else {
         print('API POST failed (registerUser returned false)');

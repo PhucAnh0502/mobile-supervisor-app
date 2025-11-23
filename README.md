@@ -22,7 +22,9 @@ git clone https://github.com/PhucAnh0502/mobile-supervisor-app.git gr2
 cd gr2
 ```
 
-## 3. Cài Flutter dependencies
+## 3. Tạo file env theo mẫu của file env.example
+
+## 4. Cài Flutter dependencies
 
 ```powershell
 flutter --version
@@ -31,7 +33,7 @@ flutter pub get
 
 Nếu bạn gặp lỗi về PATH, đảm bảo `flutter` có trong `PATH`.
 
-## 4. Cấu hình Android (Windows/Linux)
+## 5. Cấu hình Android (Windows/Linux)
 
 - Mở Android Studio → SDK Manager → cài Android SDK, platform-tools, build-tools phù hợp
 - Chấp nhận license:
@@ -63,7 +65,7 @@ flutter build apk --release
 # file: build/app/outputs/flutter-apk/app-release.apk
 ```
 
-## 5. Cấu hình iOS (macOS only)
+## 6. Cấu hình iOS (macOS only)
 
 - Cài Xcode từ App Store
 - Cài CocoaPods nếu chưa có:
@@ -96,12 +98,12 @@ Build archive / ipa (cần cấu hình signing):
 flutter build ipa --export-method ad-hoc
 ```
 
-## 6. Lưu ý về môi trường và biến PATH
+## 7. Lưu ý về môi trường và biến PATH
 
 - Thêm Flutter `bin` vào PATH trên Windows (System Environment Variables)
 - Thêm Android `platform-tools` (chứa adb) vào PATH
 
-## 7. Thao tác hữu ích & debug
+## 8. Thao tác hữu ích & debug
 
 - Kiểm tra tình trạng môi trường:
 
@@ -122,13 +124,13 @@ flutter pub get
 flutter logs -d <deviceId>
 ```
 
-## 8. Vấn đề phổ biến
+## 9. Vấn đề phổ biến
 
 - `pod install` lỗi → thử `pod repo update` rồi `pod install`.
 - Lỗi signing iOS → mở `ios/Runner.xcworkspace` bằng Xcode và chọn team đúng, đảm bảo provisioning profile hợp lệ.
 - Thiết bị không hiện trong `flutter devices` → kiểm tra USB debugging (Android) hoặc trust this computer (iOS), và adb/idevice đã cài.
 
-## 9. Tài nguyên hữu ích
+## 10. Tài nguyên hữu ích
 
 - Flutter docs: https://flutter.dev/docs
 - Troubleshooting Android: https://developer.android.com/studio

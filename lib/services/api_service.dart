@@ -1,13 +1,14 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:gr2/env/env.dart';
 
 import 'package:gr2/models/user_info.dart';
 
 class ApiService {
-  final String _baseUrl = 'https://mobile-supervisor/api/v1';
+  final String _baseUrl = Env.baseApiUrl;
 
   Future<bool> registerUser(UserInfo userInfo) async {
-    final url = Uri.parse('$_baseUrl/register');
+    final url = Uri.parse('$_baseUrl/auth/register');
     try {
       final response = await http.post(
         url,
