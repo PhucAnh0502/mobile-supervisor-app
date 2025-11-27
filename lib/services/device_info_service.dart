@@ -10,6 +10,7 @@ import 'package:flutter_cell_info/models/common/cell_type.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
+import 'package:gr2/services/api_service.dart';
 
 class DeviceInfoService {
   final DeviceInfoPlugin _deviceInfo = DeviceInfoPlugin();
@@ -292,5 +293,103 @@ class DeviceInfoService {
     } catch (e) {
       throw Exception('Error fetching cell info list: $e');
     }
+  }
+
+  Future<bool> submitCollectedData([String? apiKey]) async {
+    try {
+      final loc = await getLocation();
+      final cells = await getCellInfoList();
+
+      Map<String, dynamic>? locationPayload;
+      if (loc != null && loc['lat'] != null && loc['lon'] != null) {
+        locationPayload = {
+          'latitude': loc['lat'],
+          'longitude': loc['lon'],
+        };
+      } else {
+        locationPayload = {'latitude': null, 'longitude': null};
+      }
+
+      List<Map<String, dynamic>> towers = cells.map<Map<String, dynamic>>(
+        (cell) {
+          final type = (cell['type'] ?? cell['cellType'] ?? 'Unknown').toString();
+          
+          int? mcc = _extractInt(cell['mcc'] ?? cell['MCC']);
+          int? mnc = _extractInt(cell['mnc'] ?? cell['MNC']);
+          int? lac = _extractInt(cell['lac'] ?? cell['tac'] ?? cell['LAC'] ?? cell['tacId']);
+          int? cid = _extractInt(cell['cid'] ?? cell['ci'] ?? cell['CI'] ?? cell['ciId']);
+          int? rssi = _extractInt(cell['rssi'] ?? cell['signal'] ?? cell['signalDbm'] ?? cell['dbm']);
+          int? signalDbm = _extractInt(cell['signalDbm'] ?? cell['dbm'] ?? cell['signal']);
+          int? pci = _extractInt(cell['pci'] ?? cell['PCI']);
+
+          final map = {
+            'type': type,
+            'mcc': mcc,
+            'mnc': mnc,
+            'lac': lac,
+            'cid': cid,
+            'rssi': rssi,
+            'signalDbm': signalDbm,
+            'pci': pci,
+          };
+
+          return map;
+        },
+      ).toList(); 
+
+      final payload = {
+        'location': locationPayload,
+        'cellTowers': towers,
+      };
+
+      final api = ApiService();
+      final ok = await api.submitCellData(payload); 
+      return ok;
+    } catch (e) {
+      print('Error in submitCollectedData: $e');
+      return false;
+    }
+  }
+
+  int? _toInt(dynamic v) => _extractInt(v);
+
+  int? _extractInt(dynamic v) {
+    if (v == null) return 0;
+    
+    int? val;
+    if (v is int) val = v;
+    else if (v is double) val = v.toInt();
+    else if (v is String) {
+      final cleaned = v.trim();
+      val = int.tryParse(cleaned);
+    }
+    else if (v is Map) {
+      final candidates = ['value', 'val', 'tac', 'LAC', 'lac', 'tacId', 'ci', 'cid', 'CI', 'pci', 'PCI', 'dbm', 'signalDbm'];
+      for (final k in candidates) {
+        if (v.containsKey(k)) {
+          final extracted = _extractInt(v[k]);
+          if (extracted != null) {
+            val = extracted;
+            break; 
+          }
+        }
+      }
+      if (val == null) {
+        for (final entry in v.entries) {
+          final nested = _extractInt(entry.value);
+          if (nested != null) {
+            val = nested;
+            break;
+          }
+        }
+      }
+    }
+    else if (v is List && v.isNotEmpty) {
+      val = _extractInt(v.first);
+    }
+
+    if (val == 2147483647 || val == null) return 0; 
+    
+    return val;
   }
 }

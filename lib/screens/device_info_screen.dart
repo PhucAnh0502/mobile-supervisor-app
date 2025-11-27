@@ -5,6 +5,7 @@ import 'package:gr2/blocs/device_info_bloc/device_info_bloc.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:gr2/components/info_card.dart';
 import 'package:gr2/services/device_info_service.dart';
+import 'package:gr2/utils/token_manager.dart';
 import 'package:gr2/components/live_location_card.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -181,6 +182,62 @@ class _DeviceInfoScreenState extends State<DeviceInfoScreen> {
     );
   }
 
+  Future<void> _sendToServer(BuildContext context) async {
+    final tm = TokenManager();
+    final saved = await tm.getToken();
+
+    String? providedKey;
+    if (saved != null && saved.isNotEmpty) {
+      // Use saved access token automatically
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Using saved access token...')));
+      providedKey = null;
+    } else {
+      final apiKeyController = TextEditingController();
+      final res = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Send data to server'),
+          content: TextField(
+            controller: apiKeyController,
+            decoration: const InputDecoration(labelText: 'API Key or Access Token', hintText: 'Enter your API key or access token'),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
+            ElevatedButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Send')),
+          ],
+        ),
+      );
+      if (res != true) return;
+      providedKey = apiKeyController.text.trim();
+      if (providedKey.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('API key is required')));
+        return;
+      }
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sending data...')));
+
+    bool ok;
+    if (providedKey != null && providedKey.isNotEmpty) {
+      // Heuristic: if string looks like JWT (contains two dots), treat as access token and save it
+      if (providedKey.split('.').length == 3) {
+        await tm.saveToken(providedKey);
+        ok = await _service.submitCollectedData();
+      } else {
+        // treat as x-api-key
+        ok = await _service.submitCollectedData(providedKey);
+      }
+    } else {
+      // use saved token flow
+      ok = await _service.submitCollectedData();
+    }
+    if (ok) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Data sent successfully'), backgroundColor: Colors.green));
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to send data')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -256,11 +313,6 @@ class _DeviceInfoScreenState extends State<DeviceInfoScreen> {
             title: 'Location',
             content: state.location,
           ),
-          InfoCard(
-            icon: Icons.network_cell,
-            title: 'Cell Info',
-            content: state.cellInfo,
-          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
             child: ElevatedButton.icon(
@@ -269,6 +321,17 @@ class _DeviceInfoScreenState extends State<DeviceInfoScreen> {
               },
               icon: const Icon(Icons.details),
               label: const Text('Show cell details'),
+            ),
+          ),
+
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: ElevatedButton.icon(
+              onPressed: () async {
+                await _sendToServer(context);
+              },
+              icon: const Icon(Icons.cloud_upload),
+              label: const Text('Send data to server'),
             ),
           ),
 
