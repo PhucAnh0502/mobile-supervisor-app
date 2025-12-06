@@ -1,13 +1,9 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:gr2/blocs/device_info_bloc/device_info_bloc.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:gr2/components/info_card.dart';
+import 'package:wakelock_plus/wakelock_plus.dart'; 
+import 'package:gr2/blocs/device_info_bloc/device_info_bloc.dart';
 import 'package:gr2/services/device_info_service.dart';
-import 'package:gr2/utils/token_manager.dart';
-import 'package:gr2/components/live_location_card.dart';
-import 'package:geolocator/geolocator.dart';
 
 class DeviceInfoScreen extends StatefulWidget {
   const DeviceInfoScreen({super.key});
@@ -16,165 +12,121 @@ class DeviceInfoScreen extends StatefulWidget {
   State<DeviceInfoScreen> createState() => _DeviceInfoScreenState();
 }
 
-class _DeviceInfoScreenState extends State<DeviceInfoScreen> {
-  final DeviceInfoService _service = DeviceInfoService();
-  StreamSubscription<Position>? _positionSub;
-  Position? _latestPosition;
-  String _liveLocationStatus = 'Stopped';
+class _DeviceInfoScreenState extends State<DeviceInfoScreen> with WidgetsBindingObserver {
+  Timer? _autoSendTimer;
+  bool _isAutoMode = true; 
 
-  void _startLiveLocation() async {
-    setState(() => _liveLocationStatus = 'Starting...');
-    try {
-      final stream = await _service.getPositionStream(
-        accuracy: LocationAccuracy.best,
-        distanceFilter: 0,
-      );
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    
+    // Lấy dữ liệu lần đầu để hiển thị lên màn hình
+    context.read<DeviceInfoBloc>().add(FetchDeviceInfo());
 
-      _positionSub = stream.listen((pos) {
-        setState(() {
-          _latestPosition = pos;
-          _liveLocationStatus = 'Running';
-        });
-      }, onError: (err) {
-        setState(() => _liveLocationStatus = 'Error: $err');
-      });
-    } catch (e) {
-      setState(() => _liveLocationStatus = 'Error: $e');
+    if (_isAutoMode) {
+      _startAutoSend();
     }
-  }
-
-  void _stopLiveLocation() {
-    _positionSub?.cancel();
-    _positionSub = null;
-    setState(() {
-      _liveLocationStatus = 'Stopped';
-      _latestPosition = null;
-    });
   }
 
   @override
   void dispose() {
-    _stopLiveLocation();
+    _stopAutoSend();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
-  Future<void> _showCellDetails(BuildContext context) async {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      WakelockPlus.disable();
+      print("App ẩn: Background Mode (Chỉ GPS hoạt động tốt)");
+    } else if (state == AppLifecycleState.resumed) {
+      if (_isAutoMode) WakelockPlus.enable();
+      context.read<DeviceInfoBloc>().add(FetchDeviceInfo());
+      print("App hiện: Foreground Mode (Full Data)");
+    }
+  }
+
+  void _startAutoSend() {
+    WakelockPlus.enable();
+
+    _autoSendTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
+      context.read<DeviceInfoBloc>().add(SubmitCollectedDataEvent());
+      
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Auto: Đang gửi dữ liệu..."),
+          duration: Duration(milliseconds: 1000),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    });
+  }
+
+  void _stopAutoSend() {
+    _autoSendTimer?.cancel();
+    WakelockPlus.disable();
+  }
+
+  void _showCellListModal(BuildContext context) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      builder: (ctx) {
-        return FutureBuilder<List<Map<String, dynamic>>>(
-          future: _service.getCellInfoList(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const SizedBox(
-                height: 200,
-                child: Center(child: CircularProgressIndicator()),
-              );
-            }
-            if (snapshot.hasError) {
-              return Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Text('Error: ${snapshot.error}'),
-              );
-            }
-            final list = snapshot.data ?? [];
-            if (list.isEmpty) {
-              return const Padding(
-                padding: EdgeInsets.all(16.0),
-                child: Text('No cell details available'),
-              );
-            }
-            return DraggableScrollableSheet(
-              expand: false,
-              initialChildSize: 0.6,
-              minChildSize: 0.3,
-              maxChildSize: 0.95,
-              builder: (context, scrollController) {
-                return ListView.builder(
-                  controller: scrollController,
-                  itemCount: list.length,
-                  itemBuilder: (context, index) {
-                    final cell = list[index];
-                    // extract common fields for nicer display
-                    final lac = cell['lac'] ?? cell['tac'] ?? cell['LAC'] ?? cell['tacId'];
-                    final cid = cell['cid'] ?? cell['ci'] ?? cell['CI'] ?? cell['ciId'];
-                    final mcc = cell['mcc'] ?? cell['MCC'];
-                    final mnc = cell['mnc'] ?? cell['MNC'];
-
-                    // build a list of remaining entries excluding the ones we display separately
-                    final excludedKeys = {'lac','tac','LAC','tacId','cid','ci','CI','ciId','mcc','MCC','mnc','MNC'};
-                    final remaining = cell.entries.where((e) => !excludedKeys.contains(e.key)).toList();
-
-                    return Card(
-                      margin: const EdgeInsets.all(8.0),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Cell #${index + 1} - ${cell['type'] ?? 'Unknown'}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('MCC', style: TextStyle(fontWeight: FontWeight.w600)),
-                                    Text(mcc?.toString() ?? '-'),
-                                  ],
-                                )),
-                                const SizedBox(width: 12),
-                                Expanded(child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('MNC', style: TextStyle(fontWeight: FontWeight.w600)),
-                                    Text(mnc?.toString() ?? '-'),
-                                  ],
-                                )),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('LAC/TAC', style: TextStyle(fontWeight: FontWeight.w600)),
-                                    Text(lac?.toString() ?? '-'),
-                                  ],
-                                )),
-                                const SizedBox(width: 12),
-                                Expanded(child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('CID/CI', style: TextStyle(fontWeight: FontWeight.w600)),
-                                    Text(cid?.toString() ?? '-'),
-                                  ],
-                                )),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            const Divider(),
-                            const SizedBox(height: 8),
-                            // remaining key/value pairs
-                            ...remaining.map((e) => Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 2.0),
-                              child: Row(
-                                children: [
-                                  Expanded(flex: 3, child: Text(e.key, style: const TextStyle(fontWeight: FontWeight.w600))),
-                                  const SizedBox(width: 8),
-                                  Expanded(flex: 5, child: Text(e.value?.toString() ?? '')),
-                                ],
-                              ),
-                            )).toList(),
-                          ],
-                        ),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.6,
+          minChildSize: 0.4,
+          maxChildSize: 0.9,
+          builder: (context, scrollController) {
+            return Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: const BoxDecoration(
+                    border: Border(bottom: BorderSide(color: Colors.grey, width: 0.5)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("Danh sách Cell (Live Fetch)", 
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
                       ),
-                    );
-                  },
-                );
-              },
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: FutureBuilder<String>(
+                    future: DeviceInfoService().getCellInfo(), 
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      } else if (snapshot.hasError) {
+                        return Center(child: Text("Lỗi: ${snapshot.error}", style: const TextStyle(color: Colors.red)));
+                      } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                        return const Center(child: Text("Không có dữ liệu Cell"));
+                      }
+                      
+                      return SingleChildScrollView(
+                        controller: scrollController,
+                        padding: const EdgeInsets.all(16),
+                        child: Text(
+                          snapshot.data!, 
+                          style: const TextStyle(fontFamily: 'Courier'),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
             );
           },
         );
@@ -182,203 +134,145 @@ class _DeviceInfoScreenState extends State<DeviceInfoScreen> {
     );
   }
 
-  Future<void> _sendToServer(BuildContext context) async {
-    final tm = TokenManager();
-    final saved = await tm.getToken();
-
-    String? providedKey;
-    if (saved != null && saved.isNotEmpty) {
-      // Use saved access token automatically
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Using saved access token...')));
-      providedKey = null;
-    } else {
-      final apiKeyController = TextEditingController();
-      final res = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Send data to server'),
-          content: TextField(
-            controller: apiKeyController,
-            decoration: const InputDecoration(labelText: 'API Key or Access Token', hintText: 'Enter your API key or access token'),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Cancel')),
-            ElevatedButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Send')),
-          ],
-        ),
-      );
-      if (res != true) return;
-      providedKey = apiKeyController.text.trim();
-      if (providedKey.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('API key is required')));
-        return;
-      }
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sending data...')));
-
-    bool ok;
-    if (providedKey != null && providedKey.isNotEmpty) {
-      // Heuristic: if string looks like JWT (contains two dots), treat as access token and save it
-      if (providedKey.split('.').length == 3) {
-        await tm.saveToken(providedKey);
-        ok = await _service.submitCollectedData();
-      } else {
-        // treat as x-api-key
-        ok = await _service.submitCollectedData(providedKey);
-      }
-    } else {
-      // use saved token flow
-      ok = await _service.submitCollectedData();
-    }
-    if (ok) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Data sent successfully'), backgroundColor: Colors.green));
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Failed to send data')));
-    }
+  Widget _buildInfoCard(String title, String content, IconData icon) {
+    return Card(
+      elevation: 2,
+      margin: const EdgeInsets.symmetric(vertical: 6),
+      child: ListTile(
+        leading: Icon(icon, color: Colors.blue),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+        subtitle: Text(content.isEmpty ? "N/A" : content),
+        dense: true,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Device Info'),
-        backgroundColor: Theme.of(context).primaryColor,
-        foregroundColor: Colors.white,
-      ),
-      body: BlocBuilder<DeviceInfoBloc, DeviceInfoState>(
-        builder: (context, state) {
-          if (state is DeviceInfoInitial) {
-            return _buildInitial(context);
-          }
-          if (state is DeviceInfoLoading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (state is DeviceInfoLoaded) {
-            return _buildLoadedView(context, state);
-          }
-          if (state is DeviceInfoError) {
-            return _buildErrorView(context, state.message);
-          }
-          return const Center(child: Text('Unknown state'));
-        },
-      ),
-    );
-  }
-
-  Widget _buildInitial(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Text('Press the button to fetch device info', style: TextStyle(fontSize: 16),),
-          const SizedBox(height: 20),
-          ElevatedButton.icon(
-            icon: const Icon(Icons.search),
-            label: const Text('Fetch Device Info'),
-            onPressed: () {
-              context.read<DeviceInfoBloc>().add(FetchDeviceInfo());
+        title: const Text("Device Monitor"),
+        actions: [
+          Switch(
+            value: _isAutoMode,
+            activeColor: Colors.greenAccent,
+            onChanged: (val) {
+              setState(() {
+                _isAutoMode = val;
+                if (_isAutoMode) {
+                  _startAutoSend();
+                } else {
+                  _stopAutoSend();
+                }
+              });
             },
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-              textStyle: const TextStyle(fontSize: 16),
-            ),
-          ),
+          )
         ],
       ),
-    );
-  }
+      body: BlocConsumer<DeviceInfoBloc, DeviceInfoState>(
+        listener: (context, state) {
+          if (state is DeviceInfoSubmitSuccess) {
+          } else if (state is DeviceInfoError) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text(state.message), backgroundColor: Colors.red),
+            );
+          }
+        },
+        builder: (context, state) {
+          String deviceName = "...";
+          String phoneNumber = "...";
+          String location = "...";
+          String cellInfo = "...";
 
-  Widget _buildLoadedView(BuildContext context, DeviceInfoLoaded state) {
+          if (state is DeviceInfoLoaded) {
+            deviceName = state.deviceName;
+            phoneNumber = state.phoneNumber;
+            location = state.location;
+            cellInfo = state.cellInfo;
+          }
 
-    return RefreshIndicator(
-      onRefresh: () async {
-        context.read<DeviceInfoBloc>().add(FetchDeviceInfo());
-      },
-      child: ListView(
-        padding: const EdgeInsets.all(8.0),
-        children: [
-          InfoCard(
-            icon: Icons.phone_android,
-            title: 'Device Name',
-            content: state.deviceName,
-          ),
-          InfoCard(
-            icon: Icons.phone,
-            title: 'Phone Number',
-            content: state.phoneNumber,
-          ),
-          InfoCard(
-            icon: Icons.location_on,
-            title: 'Location',
-            content: state.location,
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            child: ElevatedButton.icon(
-              onPressed: () async {
-                await _showCellDetails(context);
-              },
-              icon: const Icon(Icons.details),
-              label: const Text('Show cell details'),
-            ),
-          ),
-
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            child: ElevatedButton.icon(
-              onPressed: () async {
-                await _sendToServer(context);
-              },
-              icon: const Icon(Icons.cloud_upload),
-              label: const Text('Send data to server'),
-            ),
-          ),
-
-          // Live location card (extracted to a reusable component)
-          LiveLocationCard(
-            position: _latestPosition,
-            status: _liveLocationStatus,
-            onStart: _positionSub == null ? _startLiveLocation : () {},
-            onStop: _positionSub != null ? _stopLiveLocation : () {},
-          ),
-
-          Padding(
+          return Container(
             padding: const EdgeInsets.all(16.0),
-            child: ElevatedButton(
-              onPressed: () {
-                context.read<DeviceInfoBloc>().add(FetchDeviceInfo());
-              },
-              child: const Text('Refresh'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 15),
+                  decoration: BoxDecoration(
+                    color: _isAutoMode ? Colors.green.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: _isAutoMode ? Colors.green : Colors.grey),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(_isAutoMode ? Icons.autorenew : Icons.pause, 
+                           color: _isAutoMode ? Colors.green : Colors.grey),
+                      const SizedBox(width: 10),
+                      Text(
+                        _isAutoMode 
+                        ? "AUTO MODE: ON (Giữ màn sáng)" 
+                        : "AUTO MODE: OFF",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: _isAutoMode ? Colors.green : Colors.grey
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                const SizedBox(height: 10),
 
-  Widget _buildErrorView(BuildContext context, String message) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text('Error: $message', style: const TextStyle(color: Colors.red, fontSize: 16), textAlign: TextAlign.center,),
-            const SizedBox(height: 20),
-            ElevatedButton.icon(
-              icon: const Icon(Icons.refresh),
-              label: const Text('Retry'),
-              onPressed: () {
-                context.read<DeviceInfoBloc>().add(FetchDeviceInfo());
-              },
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                textStyle: const TextStyle(fontSize: 16),
-              ),
+                Expanded(
+                  child: state is DeviceInfoLoading 
+                      ? const Center(child: CircularProgressIndicator())
+                      : SingleChildScrollView(
+                          child: Column(
+                            children: [
+                              _buildInfoCard("Thiết bị", deviceName, Icons.phone_android),
+                              _buildInfoCard("Số điện thoại", phoneNumber, Icons.sim_card),
+                              _buildInfoCard("Vị trí GPS", location, Icons.location_on),
+                              _buildInfoCard("Cell Info (Gần nhất)", cellInfo, Icons.signal_cellular_alt),
+                              
+                              const SizedBox(height: 20),
+
+                              SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton.icon(
+                                  onPressed: () => _showCellListModal(context),
+                                  icon: const Icon(Icons.list_alt),
+                                  label: const Text("Xem danh sách Cell (Fetch Live)"),
+                                  style: OutlinedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    side: const BorderSide(color: Colors.blue),
+                                  ),
+                                ),
+                              ),
+
+                              const SizedBox(height: 10),
+
+                              SizedBox(
+                                width: double.infinity,
+                                child: ElevatedButton.icon(
+                                  onPressed: () {
+                                    context.read<DeviceInfoBloc>().add(SubmitCollectedDataEvent());
+                                  },
+                                  icon: const Icon(Icons.send),
+                                  label: const Text("Gửi thủ công ngay"),
+                                  style: ElevatedButton.styleFrom(
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 20), 
+                            ],
+                          ),
+                        ),
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

@@ -11,7 +11,12 @@ sealed class DeviceInfoState extends Equatable {
 class DeviceInfoInitial extends DeviceInfoState {}
 
 class DeviceInfoLoading extends DeviceInfoState {}
-
+class DeviceInfoSubmitSuccess extends DeviceInfoState {
+  final String message;
+  const DeviceInfoSubmitSuccess(this.message);
+  @override
+  List<Object> get props => [message];
+}
 class DeviceInfoLoaded extends DeviceInfoState {
   final String deviceName;
   final String phoneNumber;

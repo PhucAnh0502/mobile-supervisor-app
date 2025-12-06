@@ -11,6 +11,7 @@ class DeviceInfoBloc extends Bloc<DeviceInfoEvent, DeviceInfoState> {
 
   DeviceInfoBloc(this._deviceInfoService) : super(DeviceInfoInitial()) {
     on<FetchDeviceInfo>(_onFetchDeviceInfo);
+    on<SubmitCollectedDataEvent>(_onSubmitCollectedData);
   }
 
   Future<void> _onFetchDeviceInfo(
@@ -21,6 +22,7 @@ class DeviceInfoBloc extends Bloc<DeviceInfoEvent, DeviceInfoState> {
       emit(DeviceInfoLoading());
       
       await _deviceInfoService.requestPermission();
+      
       final results = await Future.wait([
         _deviceInfoService.getDeviceInfo(),
         _deviceInfoService.getPhoneNumber(),
@@ -45,7 +47,33 @@ class DeviceInfoBloc extends Bloc<DeviceInfoEvent, DeviceInfoState> {
         cellInfo: cellInfo,
       ));
     } catch (e) {
-      emit(DeviceInfoError(message: 'Error: ${e.toString()}'));
+      emit(DeviceInfoError(message: 'Lỗi lấy thông tin: ${e.toString()}'));
+    }
+  }
+
+  Future<void> _onSubmitCollectedData(
+    SubmitCollectedDataEvent event,
+    Emitter<DeviceInfoState> emit,
+  ) async {
+    final currentState = state;
+    
+    try {
+      await _deviceInfoService.submitCollectedData();
+      
+      emit(const DeviceInfoSubmitSuccess("Gửi dữ liệu thành công!"));
+
+      if (currentState is DeviceInfoLoaded) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        emit(currentState); 
+      
+      }
+      
+    } catch (e) {
+      emit(DeviceInfoError(message: 'Lỗi gửi dữ liệu: ${e.toString()}'));
+      if (currentState is DeviceInfoLoaded) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        emit(currentState);
+      }
     }
   }
 }

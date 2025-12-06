@@ -51,16 +51,12 @@ class ApiService {
     }
   }
 
-  /// Submit cell/location payload to server. If [apiKey] is provided it will be used
-  /// as an `x-api-key` header. Otherwise this method will try to use any saved
-  /// token from `TokenManager` and send it as `x-api-key` (preferred by the backend).
   Future<bool> submitCellData(
     Map<String, dynamic> payload
     ) async {
     final url = Uri.parse('$_baseUrl/data/submit');
     try {
       final headers = <String, String>{'Content-Type': 'application/json'};
-        // try to use saved token and send it as x-api-key (backend expects this)
         final tm = TokenManager();
         final tokenToUse = await tm.getToken();
         if (tokenToUse != null && tokenToUse.isNotEmpty) {

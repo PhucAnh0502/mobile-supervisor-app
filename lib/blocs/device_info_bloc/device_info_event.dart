@@ -9,3 +9,5 @@ sealed class DeviceInfoEvent extends Equatable {
 }
 
 class FetchDeviceInfo extends DeviceInfoEvent {}
+
+class SubmitCollectedDataEvent extends DeviceInfoEvent {}

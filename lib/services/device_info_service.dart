@@ -16,7 +16,7 @@ class DeviceInfoService {
   final DeviceInfoPlugin _deviceInfo = DeviceInfoPlugin();
 
   Future<void> requestPermission() async {
-    await [Permission.phone, Permission.location].request();
+    await [Permission.phone, Permission.location, Permission.notification].request();
   }
 
 
@@ -121,15 +121,13 @@ class DeviceInfoService {
   }
 
   Future<String> getCellInfo() async {
-    Map<Permission, PermissionStatus> statuses = await [
-      Permission.location,
-      Permission.phone,
-    ].request();
+    final locationGranted = await Permission.location.isGranted;
+    final phoneGranted = await Permission.phone.isGranted;
 
-    if (!statuses[Permission.location]!.isGranted) {
+    if (!locationGranted) {
       return 'Location permission was denied';
     }
-    if (!statuses[Permission.phone]!.isGranted) {
+    if (!phoneGranted) {
       return 'Phone permission was denied';
     }
 
@@ -229,12 +227,10 @@ class DeviceInfoService {
   }
 
   Future<List<Map<String, dynamic>>> getCellInfoList() async {
-    Map<Permission, PermissionStatus> statuses = await [
-      Permission.location,
-      Permission.phone,
-    ].request();
+    final locationGranted = await Permission.location.isGranted;
+    final phoneGranted = await Permission.phone.isGranted;
 
-    if (!statuses[Permission.location]!.isGranted || !statuses[Permission.phone]!.isGranted) {
+    if (!locationGranted || !phoneGranted) {
       throw Exception('Required permissions not granted');
     }
 
@@ -247,8 +243,15 @@ class DeviceInfoService {
         try {
           raw = await channel.invokeMethod<String>('getCellInfo');
         } on MissingPluginException {
-          raw = await channel.invokeMethod<String>('cell_info');
+          try {
+            raw = await channel.invokeMethod<String>('cell_info');
+          } on MissingPluginException {
+            raw = null;
+          }
         }
+      } catch (pe) {
+        print('Platform channel exception while fetching cell info: $pe');
+        raw = null;
       }
 
       if (raw != null) {
@@ -273,25 +276,39 @@ class DeviceInfoService {
         }
       }
 
-      String? platformVersion = await CellInfo.getCellInfo;
-      if (platformVersion != null) {
-        try {
-          print('RAW_CELL_JSON (fallback CellInfo.getCellInfo): $platformVersion');
-        } catch (_) {}
+      // Try plugin API as fallback but specifically handle SecurityException wrapped in PlatformException
+      String? platformVersion;
+      try {
+        platformVersion = await CellInfo.getCellInfo;
+      } on PlatformException catch (pe) {
+        final msg = pe.toString();
+        print('PlatformException while getting cell info (treated as no-data): $msg');
+        return [];
+      } catch (e) {
+        print('Unexpected error when calling CellInfo.getCellInfo: $e');
+        platformVersion = null;
       }
+
       if (platformVersion == null) return [];
+
+      try {
+        print('RAW_CELL_JSON (fallback CellInfo.getCellInfo): $platformVersion');
+      } catch (_) {}
+
       final body = json.decode(platformVersion);
       if (body is List) {
         return body.map<Map<String,dynamic>>((e) => e is Map ? Map<String,dynamic>.from(e) : {'value': e.toString()}).toList();
       }
       if (body is Map && body.containsKey('primaryCellList')) {
         final list = body['primaryCellList'];
-  if (list is List) return list.map<Map<String,dynamic>>((e) => e is Map ? Map<String,dynamic>.from(e) : {'value': e.toString()}).toList();
+        if (list is List) return list.map<Map<String,dynamic>>((e) => e is Map ? Map<String,dynamic>.from(e) : {'value': e.toString()}).toList();
       }
       if (body is Map) return [Map<String,dynamic>.from(body)];
       return [];
     } catch (e) {
-      throw Exception('Error fetching cell info list: $e');
+      // Catch-all: return empty list rather than throwing platform-specific security error
+      print('Error fetching cell info list (returning empty): $e');
+      return [];
     }
   }
 
@@ -350,8 +367,6 @@ class DeviceInfoService {
       return false;
     }
   }
-
-  int? _toInt(dynamic v) => _extractInt(v);
 
   int? _extractInt(dynamic v) {
     if (v == null) return 0;
