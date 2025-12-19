@@ -15,6 +15,7 @@ class DeviceInfoScreen extends StatefulWidget {
 class _DeviceInfoScreenState extends State<DeviceInfoScreen> with WidgetsBindingObserver {
   Timer? _autoSendTimer;
   bool _isAutoMode = true; 
+  bool _useMqtt = false;
 
   @override
   void initState() {
@@ -52,22 +53,27 @@ class _DeviceInfoScreenState extends State<DeviceInfoScreen> with WidgetsBinding
     WakelockPlus.enable();
 
     _autoSendTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
-      context.read<DeviceInfoBloc>().add(SubmitCollectedDataEvent());
-      
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Auto: Đang gửi dữ liệu..."),
-          duration: Duration(milliseconds: 1000),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      _triggerSend();
     });
   }
 
   void _stopAutoSend() {
     _autoSendTimer?.cancel();
     WakelockPlus.disable();
+  }
+
+  void _triggerSend() {
+    context.read<DeviceInfoBloc>().add(SubmitCollectedDataEvent(useMqtt: _useMqtt));
+
+    final channel = _useMqtt ? 'MQTT (HiveMQ)' : 'API';
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${_isAutoMode ? 'Auto' : 'Thủ công'}: Đang gửi qua $channel...'),
+        duration: const Duration(milliseconds: 1000),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   void _showCellListModal(BuildContext context) {
@@ -223,6 +229,44 @@ class _DeviceInfoScreenState extends State<DeviceInfoScreen> with WidgetsBinding
                 
                 const SizedBox(height: 10),
 
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const Text(
+                      'Đường gửi dữ liệu',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('API'),
+                          selected: !_useMqtt,
+                          onSelected: (_) => setState(() => _useMqtt = false),
+                        ),
+                        const SizedBox(width: 8),
+                        ChoiceChip(
+                          label: const Text('MQTT (HiveMQ)'),
+                          selected: _useMqtt,
+                          onSelected: (_) => setState(() => _useMqtt = true),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _useMqtt ? 'Đang dùng MQTT để gửi Cell Info' : 'Đang dùng API để gửi Cell Info',
+                      style: TextStyle(
+                        color: _useMqtt ? Colors.deepOrange : Colors.blueGrey,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 10),
+
                 Expanded(
                   child: state is DeviceInfoLoading 
                       ? const Center(child: CircularProgressIndicator())
@@ -255,7 +299,7 @@ class _DeviceInfoScreenState extends State<DeviceInfoScreen> with WidgetsBinding
                                 width: double.infinity,
                                 child: ElevatedButton.icon(
                                   onPressed: () {
-                                    context.read<DeviceInfoBloc>().add(SubmitCollectedDataEvent());
+                                    _triggerSend();
                                   },
                                   icon: const Icon(Icons.send),
                                   label: const Text("Gửi thủ công ngay"),

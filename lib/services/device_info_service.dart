@@ -11,6 +11,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:gr2/services/api_service.dart';
+import 'package:gr2/services/mqtt_service.dart';
 
 class DeviceInfoService {
   final DeviceInfoPlugin _deviceInfo = DeviceInfoPlugin();
@@ -312,7 +313,7 @@ class DeviceInfoService {
     }
   }
 
-  Future<bool> submitCollectedData([String? apiKey]) async {
+  Future<bool> submitCollectedData({bool useMqtt = false}) async {
     try {
       final loc = await getLocation();
       final cells = await getCellInfoList();
@@ -358,6 +359,12 @@ class DeviceInfoService {
         'location': locationPayload,
         'cellTowers': towers,
       };
+
+      if (useMqtt) {
+        final mqtt = MqttService();
+        final sent = await mqtt.publishCellInfo(payload);
+        return sent;
+      }
 
       final api = ApiService();
       final ok = await api.submitCellData(payload); 

@@ -10,4 +10,11 @@ sealed class DeviceInfoEvent extends Equatable {
 
 class FetchDeviceInfo extends DeviceInfoEvent {}
 
-class SubmitCollectedDataEvent extends DeviceInfoEvent {}
+class SubmitCollectedDataEvent extends DeviceInfoEvent {
+    final bool useMqtt;
+
+    const SubmitCollectedDataEvent({this.useMqtt = false});
+
+    @override
+    List<Object> get props => [useMqtt];
+}

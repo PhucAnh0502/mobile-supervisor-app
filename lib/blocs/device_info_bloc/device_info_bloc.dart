@@ -58,9 +58,17 @@ class DeviceInfoBloc extends Bloc<DeviceInfoEvent, DeviceInfoState> {
     final currentState = state;
     
     try {
-      await _deviceInfoService.submitCollectedData();
+      final ok = await _deviceInfoService.submitCollectedData(useMqtt: event.useMqtt);
       
-      emit(const DeviceInfoSubmitSuccess("Gửi dữ liệu thành công!"));
+      if (ok) {
+        emit(DeviceInfoSubmitSuccess(
+          event.useMqtt ? 'Đã gửi qua MQTT (HiveMQ)' : 'Gửi qua API thành công!',
+        ));
+      } else {
+        emit(DeviceInfoError(
+          message: event.useMqtt ? 'Gửi qua MQTT thất bại' : 'Gửi qua API thất bại',
+        ));
+      }
 
       if (currentState is DeviceInfoLoaded) {
         await Future.delayed(const Duration(milliseconds: 100));
@@ -69,7 +77,11 @@ class DeviceInfoBloc extends Bloc<DeviceInfoEvent, DeviceInfoState> {
       }
       
     } catch (e) {
-      emit(DeviceInfoError(message: 'Lỗi gửi dữ liệu: ${e.toString()}'));
+      emit(DeviceInfoError(
+        message: event.useMqtt
+            ? 'Lỗi gửi MQTT: ${e.toString()}'
+            : 'Lỗi gửi dữ liệu: ${e.toString()}',
+      ));
       if (currentState is DeviceInfoLoaded) {
         await Future.delayed(const Duration(milliseconds: 100));
         emit(currentState);
