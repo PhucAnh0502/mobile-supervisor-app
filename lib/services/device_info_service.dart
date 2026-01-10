@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:gr2/models/device_info.dart';
+import 'package:gr2/utils/token_manager.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:mobile_number/mobile_number.dart';
 import 'package:flutter_cell_info/cell_response.dart';
@@ -12,6 +13,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:gr2/services/api_service.dart';
 import 'package:gr2/services/mqtt_service.dart';
+import 'package:gr2/services/data_buffer.dart';
 
 class DeviceInfoService {
   final DeviceInfoPlugin _deviceInfo = DeviceInfoPlugin();
@@ -315,62 +317,82 @@ class DeviceInfoService {
 
   Future<bool> submitCollectedData({bool useMqtt = false}) async {
     try {
-      final loc = await getLocation();
-      final cells = await getCellInfoList();
-
-      Map<String, dynamic>? locationPayload;
-      if (loc != null && loc['lat'] != null && loc['lon'] != null) {
-        locationPayload = {
-          'latitude': loc['lat'],
-          'longitude': loc['lon'],
-        };
-      } else {
-        locationPayload = {'latitude': null, 'longitude': null};
-      }
-
-      List<Map<String, dynamic>> towers = cells.map<Map<String, dynamic>>(
-        (cell) {
-          final type = (cell['type'] ?? cell['cellType'] ?? 'Unknown').toString();
-          
-          int? mcc = _extractInt(cell['mcc'] ?? cell['MCC']);
-          int? mnc = _extractInt(cell['mnc'] ?? cell['MNC']);
-          int? lac = _extractInt(cell['lac'] ?? cell['tac'] ?? cell['LAC'] ?? cell['tacId']);
-          int? cid = _extractInt(cell['cid'] ?? cell['ci'] ?? cell['CI'] ?? cell['ciId']);
-          int? rssi = _extractInt(cell['rssi'] ?? cell['signal'] ?? cell['signalDbm'] ?? cell['dbm']);
-          int? signalDbm = _extractInt(cell['signalDbm'] ?? cell['dbm'] ?? cell['signal']);
-          int? pci = _extractInt(cell['pci'] ?? cell['PCI']);
-
-          final map = {
-            'type': type,
-            'mcc': mcc,
-            'mnc': mnc,
-            'lac': lac,
-            'cid': cid,
-            'rssi': rssi,
-            'signalDbm': signalDbm,
-            'pci': pci,
-          };
-
-          return map;
-        },
-      ).toList(); 
-
-      final payload = {
-        'location': locationPayload,
-        'cellTowers': towers,
-      };
-
-      if (useMqtt) {
-        final mqtt = MqttService();
-        final sent = await mqtt.publishCellInfo(payload);
-        return sent;
-      }
-
-      final api = ApiService();
-      final ok = await api.submitCellData(payload); 
+      final payload = await collectPayload();
+      // Update the shared buffer so other loops can reuse the latest data
+      DataBuffer().update(payload);
+      final ok = await sendPayload(payload, useMqtt: useMqtt);
       return ok;
     } catch (e) {
       print('Error in submitCollectedData: $e');
+      return false;
+    }
+  }
+
+  Future<Map<String, dynamic>> collectPayload() async {
+    final loc = await getLocation();
+    final cells = await getCellInfoList();
+    final deviceId = await TokenManager().getDeviceId();
+
+    Map<String, dynamic>? locationPayload;
+    if (loc != null && loc['lat'] != null && loc['lon'] != null) {
+      locationPayload = {
+        'latitude': loc['lat'],
+        'longitude': loc['lon'],
+      };
+    } else {
+      locationPayload = {'latitude': null, 'longitude': null};
+    }
+
+    List<Map<String, dynamic>> towers = cells.map<Map<String, dynamic>>(
+      (cell) {
+        final type = (cell['type'] ?? cell['cellType'] ?? 'Unknown').toString();
+
+        int? mcc = _extractInt(cell['mcc'] ?? cell['MCC']);
+        int? mnc = _extractInt(cell['mnc'] ?? cell['MNC']);
+        int? lac = _extractInt(cell['lac'] ?? cell['tac'] ?? cell['LAC'] ?? cell['tacId']);
+        int? cid = _extractInt(cell['cid'] ?? cell['ci'] ?? cell['CI'] ?? cell['ciId']);
+        int? rssi = _extractInt(cell['rssi'] ?? cell['signal'] ?? cell['signalDbm'] ?? cell['dbm']);
+        int? signalDbm = _extractInt(cell['signalDbm'] ?? cell['dbm'] ?? cell['signal']);
+        int? pci = _extractInt(cell['pci'] ?? cell['PCI']);
+
+        final map = {
+          'type': type,
+          'mcc': mcc,
+          'mnc': mnc,
+          'lac': lac,
+          'cid': cid,
+          'rssi': rssi,
+          'signalDbm': signalDbm,
+          'pci': pci,
+        };
+
+        return map;
+      },
+    ).toList();
+
+    final payload = {
+      'deviceId': deviceId,
+      'location': locationPayload,
+      'cellTowers': towers,
+    };
+
+    return payload;
+  }
+
+  Future<bool> sendPayload(Map<String, dynamic> payload, {required bool useMqtt}) async {
+    try {
+      if (useMqtt) {
+        final mqtt = MqttService();
+        final deviceId = (payload['deviceId'] ?? '') as String;
+        final sent = await mqtt.publishCellInfo(deviceId, payload);
+        return sent;
+      } else {
+        final api = ApiService();
+        final ok = await api.submitCellData(payload);
+        return ok;
+      }
+    } catch (e) {
+      print('Error in sendPayload: $e');
       return false;
     }
   }

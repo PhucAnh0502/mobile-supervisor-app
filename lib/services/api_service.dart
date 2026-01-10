@@ -23,12 +23,14 @@ class ApiService {
           final decoded = jsonDecode(response.body);
 
           final String? token = decoded['data']?['apiKey'];
+          final String? deviceId = decoded['data']?['deviceId'];
 
           if (token != null && token.isNotEmpty) {
             final TokenManager tokenManager =
                 TokenManager();
             await tokenManager.saveToken(token);
-            print('Saved Access Token: $token');
+            await tokenManager.saveDeviceId(deviceId!);
+            print('Saved Access Token: $token and Device ID: $deviceId');
           } else {
             print('Token not found or empty in response');
           }

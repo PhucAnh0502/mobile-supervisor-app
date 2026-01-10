@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io'; // Bắt buộc để sử dụng SecurityContext
+import 'dart:io';
 import 'package:gr2/env/env.dart';
 import 'package:mqtt_client/mqtt_client.dart';
 import 'package:mqtt_client/mqtt_server_client.dart';
@@ -11,7 +11,8 @@ class MqttService {
   final int mqttPort = Env.mqttBrokerPort;
   static const String _cellInfoTopic = 'cell_info';
 
-  // Hàm chuẩn hóa Host
+  bool _isConnecting = false;
+
   String _normalizeHost(String host) {
     var h = host.trim();
     if (h.startsWith('mqtt://')) h = h.substring(7);
@@ -21,85 +22,86 @@ class MqttService {
     return h;
   }
 
-  MqttServerClient _createClient() {
-    final clientId = 'flutter_${DateTime.now().millisecondsSinceEpoch}';
+  MqttServerClient _createClient(String deviceId) {
+    final clientId = 'device_${deviceId}_session';
     final host = _normalizeHost(mqttServer);
 
     final client = MqttServerClient.withPort(host, clientId, mqttPort);
 
     client.secure = true;
-    client.securityContext = SecurityContext.defaultContext; 
-    
-    client.keepAlivePeriod = 30;
-    client.connectTimeoutPeriod = 15000; 
+    client.securityContext = SecurityContext.defaultContext;
+
+    client.keepAlivePeriod = 20;
+    client.connectTimeoutPeriod = 10000;
     client.setProtocolV311();
-    
-    client.logging(on: true); 
+
+    client.logging(on: true);
+
+    client.resubscribeOnAutoReconnect = true;
 
     final connMessage = MqttConnectMessage()
         .withClientIdentifier(clientId)
-        .authenticateAs('phucanh', 'Pa05022004') 
+        .authenticateAs('phucanh', 'Pa05022004')
         .startClean();
 
     client.connectionMessage = connMessage;
-
-    client.onConnected = () => print('[MQTT] Kết nối thành công tới $host');
-    client.onDisconnected = () => print('[MQTT] Đã ngắt kết nối');
-    client.onSubscribed = (String topic) => print('[MQTT] Đã sub topic: $topic');
-    
     return client;
   }
 
-  Future<bool> _ensureConnected() async {
-    if (_client != null && _client!.connectionStatus?.state == MqttConnectionState.connected) {
+  Future<bool> _ensureConnected(String userId) async {
+    if (_client != null &&
+        _client!.connectionStatus?.state == MqttConnectionState.connected) {
       return true;
     }
 
-    if (_client != null && _client!.connectionStatus?.state == MqttConnectionState.connecting) {
-      print('[MQTT] Đang đợi kết nối hiện tại...');
-      await Future.delayed(Duration(milliseconds: 500));
-      return _client!.connectionStatus?.state == MqttConnectionState.connected;
+    if (_isConnecting) {
+      print('[MQTT] Đang có tiến trình kết nối, vui lòng đợi...');
+      while (_isConnecting) {
+        await Future.delayed(Duration(milliseconds: 500));
+      }
+      return _client?.connectionStatus?.state == MqttConnectionState.connected;
     }
 
-    _client = _createClient();
+    _isConnecting = true;
+    _client = _createClient(userId);
 
     try {
-      print('[MQTT] Bắt đầu kết nối tới Broker...');
+      print('[MQTT] Đang thiết lập kết nối duy nhất cho User: $userId...');
       await _client!.connect();
-      
-      if (_client!.connectionStatus?.state == MqttConnectionState.connected) {
-        return true;
-      } else {
-        print('[MQTT] Kết nối thất bại: ${_client!.connectionStatus}');
-        _client!.disconnect();
-        _client = null;
-        return false;
-      }
     } catch (e) {
-      print('[MQTT] Lỗi Exception khi kết nối: $e');
+      print('[MQTT] Lỗi kết nối: $e');
       _client?.disconnect();
       _client = null;
-      return false;
+    } finally {
+      _isConnecting = false;
     }
+
+    return _client?.connectionStatus?.state == MqttConnectionState.connected;
   }
 
-  Future<bool> publishCellInfo(Map<String, dynamic> data) async {
-    final isConnected = await _ensureConnected();
+  Future<bool> publishCellInfo(
+    String deviceId,
+    Map<String, dynamic> data,
+  ) async {
+    final isConnected = await _ensureConnected(deviceId);
+
     if (!isConnected) {
-      print('[MQTT] Lỗi: Không thể gửi dữ liệu vì không có kết nối');
+      print('[MQTT] Lỗi: Không thể kết nối tới Broker');
       return false;
     }
 
     final builder = MqttClientPayloadBuilder();
-    final payload = jsonEncode(data);
-    builder.addString(payload);
+    builder.addString(jsonEncode(data));
 
     try {
-      _client!.publishMessage(_cellInfoTopic, MqttQos.atLeastOnce, builder.payload!);
-      print('[MQTT] Đã bắn CellId: $payload');
+      _client!.publishMessage(
+        _cellInfoTopic,
+        MqttQos.atLeastOnce,
+        builder.payload!,
+      );
       return true;
     } catch (e) {
-      print('[MQTT] Lỗi khi bắn dữ liệu: $e');
+      print('[MQTT] Lỗi gửi tin: $e');
       return false;
     }
   }
@@ -107,6 +109,7 @@ class MqttService {
   void disconnect() {
     _client?.disconnect();
     _client = null;
-    print('[MQTT] Chủ động ngắt kết nối');
+    _isConnecting = false;
+    print('[MQTT] Đã chủ động đóng session');
   }
 }
