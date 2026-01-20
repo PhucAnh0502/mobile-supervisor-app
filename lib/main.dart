@@ -5,6 +5,7 @@ import 'package:gr2/screens/device_info_screen.dart';
 import 'package:gr2/services/device_info_service.dart';
 import 'package:gr2/services/storage_service.dart';
 import 'package:gr2/screens/registration_screen.dart';
+import 'package:gr2/screens/intro_screen.dart';
 import 'package:gr2/services/background_service.dart';
 
 void main(List<String> args) async {
@@ -20,9 +21,31 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Device Info App',
       theme: ThemeData(
-        primarySwatch: Colors.blue,
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFEB420F)),
+        primaryColor: const Color(0xFFEB420F),
         visualDensity: VisualDensity.adaptivePlatformDensity,
         useMaterial3: true,
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: Colors.white,
+          contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide.none,
+          ),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFEB420F),
+            foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            padding: const EdgeInsets.symmetric(vertical: 14),
+          ),
+        ),
+        cardTheme: CardThemeData(
+          elevation: 6,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        ),
       ),
       debugShowCheckedModeBanner: false,
       home: const AppRoot(),
@@ -76,11 +99,7 @@ class _AppRootState extends State<AppRoot> {
       );
     }
 
-    if (_isFirst) return const RegistrationScreen();
-
-    return BlocProvider(
-      create: (context) => DeviceInfoBloc(DeviceInfoService()),
-      child: const DeviceInfoScreen(), 
-    );
+    // Always show the intro on app start; IntroScreen will route to registration
+    return const IntroScreen();
   }
 }

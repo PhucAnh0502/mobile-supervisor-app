@@ -32,7 +32,7 @@ class LiveLocationCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.location_on, color: Theme.of(context).primaryColor),
+                Icon(Icons.location_on, color: Theme.of(context).colorScheme.primary),
                 const SizedBox(width: 8),
                 const Text('Live Location', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               ],
@@ -46,13 +46,22 @@ class LiveLocationCard extends StatelessWidget {
                   onPressed: onStart,
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Start'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
                 ),
                 const SizedBox(width: 12),
                 ElevatedButton.icon(
                   onPressed: onStop,
                   icon: const Icon(Icons.stop),
                   label: const Text('Stop'),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.redAccent,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
                 ),
               ],
             )

@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+
+// Services & Models
 import 'package:gr2/services/storage_service.dart';
 import 'package:gr2/services/api_service.dart';
 import 'package:gr2/services/device_info_service.dart';
 import 'package:gr2/models/user_info.dart';
-import 'package:flutter_bloc/flutter_bloc.dart';
+
+// State Management
 import 'package:gr2/blocs/device_info_bloc/device_info_bloc.dart';
 import 'package:gr2/screens/device_info_screen.dart';
 
@@ -23,186 +27,145 @@ class _RegistrationScreenState extends State<RegistrationScreen> {
   final TextEditingController _citizenCtrl = TextEditingController();
   bool _submitting = false;
 
+  @override
+  void dispose() {
+    for (var controller in [_nameCtrl, _emailCtrl, _phoneCtrl, _addressCtrl, _citizenCtrl]) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-
     setState(() => _submitting = true);
     try {
-      // build UserInfo from the form
-      final fullName = _nameCtrl.text.trim();
-      final email = _emailCtrl.text.trim();
-      final address = _addressCtrl.text.trim();
-      final citizenId = _citizenCtrl.text.trim();
-      final phone = _phoneCtrl.text.trim();
-
-      // fetch basic device info to include in the payload
-      final device = await DeviceInfoService().getDeviceInfo();
-
       final user = UserInfo(
-        fullName: fullName,
-        address: address,
-        email: email,
-        citizenId: citizenId,
-        phoneNumber: phone,
-        device: device,
+        fullName: _nameCtrl.text.trim(),
+        address: _addressCtrl.text.trim(),
+        email: _emailCtrl.text.trim(),
+        citizenId: _citizenCtrl.text.trim(),
+        phoneNumber: _phoneCtrl.text.trim(),
+        device: await DeviceInfoService().getDeviceInfo(),
       );
 
-      // Print payload to console
-      print('Register payload: ${user.toJson()}');
-
-      // Call API
-      final api = ApiService();
-      final success = await api.registerUser(user);
-
+      final success = await ApiService().registerUser(user);
       await StorageService().setHasRegistered();
 
-      if (success) {
-        print('API POST success: user registered');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Đăng ký thành công'), backgroundColor: Colors.green),
-          );
-          // Navigate to DeviceInfoScreen (provide the bloc) after successful registration
-          Navigator.of(context).pushReplacement(MaterialPageRoute(
-            builder: (ctx) => BlocProvider(
-              create: (_) => DeviceInfoBloc(DeviceInfoService()),
-              child: const DeviceInfoScreen(),
-            ),
-          ));
-        }
-      } else {
-        print('API POST failed (registerUser returned false)');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Lỗi khi đăng ký')), 
-          );
-        }
+      if (success && mounted) {
+        _navigateToHome();
       }
-    } catch (e, st) {
-      print('Error while registering user: $e');
-      print(st);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
-      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Lỗi: $e')));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
   }
 
-  @override
-  void dispose() {
-    _nameCtrl.dispose();
-    _emailCtrl.dispose();
-    _phoneCtrl.dispose();
-    _addressCtrl.dispose(); 
-    _citizenCtrl.dispose();
-    super.dispose();
+  void _navigateToHome() {
+    Navigator.of(context).pushReplacement(MaterialPageRoute(
+      builder: (ctx) => BlocProvider(
+        create: (_) => DeviceInfoBloc(DeviceInfoService()),
+        child: const DeviceInfoScreen(),
+      ),
+    ));
+  }
+
+  InputDecoration _inputDec({required String label, required IconData icon}) {
+    final primary = Theme.of(context).primaryColor;
+    return InputDecoration(
+      labelText: label,
+      labelStyle: TextStyle(color: Colors.grey[700]),
+      prefixIcon: Icon(icon, color: primary, size: 22), // Icon chuyển sang màu cam
+      filled: true,
+      fillColor: primary.withOpacity(0.04), // Nền ô nhập liệu hơi ánh cam
+      contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: primary.withOpacity(0.2)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: primary, width: 2),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final primary = Theme.of(context).primaryColor;
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Chào mừng — Hoàn tất hồ sơ'),
-      ),
+      backgroundColor: Colors.white,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 20),
-                TextFormField(
-                  controller: _nameCtrl,
-                  decoration: const InputDecoration(
-                      labelText: 'Họ và Tên',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.person)),
-                  validator: (v) => (v == null || v.trim().isEmpty)
-                      ? 'Vui lòng nhập họ tên'
-                      : null,
-                  autovalidateMode: AutovalidateMode.onUserInteraction,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _emailCtrl,
-                  keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                      labelText: 'Email',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.email)),
-                  validator: (v) {
-                    if (v == null || v.isEmpty) return null;
-                    final emailReg = RegExp(r"^[^@\s]+@[^@\s]+\.[^@\s]+$");
-                    return emailReg.hasMatch(v)
-                        ? null
-                        : 'Vui lòng nhập email hợp lệ';
-                  },
-                  autovalidateMode: AutovalidateMode.onUserInteraction,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _addressCtrl,
-                  keyboardType: TextInputType.streetAddress,
-                  decoration: const InputDecoration(
-                      labelText: 'Địa chỉ',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.home)),
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _citizenCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                      labelText: 'Số CCCD',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.badge)),
-                  validator: (v) => (v == null || v.trim().isEmpty)
-                      ? 'Vui lòng nhập số CCCD'
-                      : null,
-                  autovalidateMode: AutovalidateMode.onUserInteraction,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  controller: _phoneCtrl,
-                  keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                      labelText: 'Số điện thoại',
-                      border: OutlineInputBorder(),
-                      prefixIcon: Icon(Icons.phone)),
-                ),
-                const SizedBox(height: 20),
-                ElevatedButton(
-                  onPressed: _submitting ? null : _submit,
-                  style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      backgroundColor: Colors.deepPurple,
-                      foregroundColor: Colors.white),
-                  child: _submitting
-                      ? const SizedBox(
-                          height: 18,
-                          width: 18,
-                          child: CircularProgressIndicator(
-                              color: Colors.white, strokeWidth: 2))
-                      : const Text('Hoàn tất đăng ký'),
-                ),
-                const SizedBox(height: 12),
-                TextButton(
-                  onPressed: () async {
-                    // mark registered and navigate to DeviceInfoScreen with its Bloc
-                    await StorageService().setHasRegistered();
-                    if (!mounted) return;
-                    Navigator.of(context).pushReplacement(MaterialPageRoute(
-                        builder: (ctx) => BlocProvider(
-                              create: (_) => DeviceInfoBloc(DeviceInfoService()),
-                              child: const DeviceInfoScreen(),
-                            )));
-                  },
-                  child: const Text('Skip for now'),
-                ),
-              ],
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 30),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 500),
+              child: Column(
+                children: [
+                  Icon(Icons.assignment_ind_rounded, size: 60, color: primary),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Hoàn tất hồ sơ',
+                    style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: primary),
+                  ),
+                  const SizedBox(height: 30),
+                  Form(
+                    key: _formKey,
+                    child: Column(
+                      children: [
+                        TextFormField(
+                          controller: _nameCtrl,
+                          decoration: _inputDec(label: 'Họ và tên', icon: Icons.person_outline),
+                          validator: (v) => (v == null || v.isEmpty) ? 'Vui lòng nhập họ tên' : null,
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _citizenCtrl,
+                          keyboardType: TextInputType.number,
+                          decoration: _inputDec(label: 'Số CCCD/CMND', icon: Icons.badge_outlined),
+                          validator: (v) => (v == null || v.isEmpty) ? 'Vui lòng nhập CCCD' : null,
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _phoneCtrl,
+                          keyboardType: TextInputType.phone,
+                          decoration: _inputDec(label: 'Số điện thoại', icon: Icons.phone_android),
+                          validator: (v) => (v == null || v.isEmpty) ? 'Vui lòng nhập SĐT' : null,
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _emailCtrl,
+                          decoration: _inputDec(label: 'Email', icon: Icons.mail_outline),
+                        ),
+                        const SizedBox(height: 16),
+                        TextFormField(
+                          controller: _addressCtrl,
+                          decoration: _inputDec(label: 'Địa chỉ', icon: Icons.map_outlined),
+                        ),
+                        const SizedBox(height: 40),
+                        
+                        SizedBox(
+                          width: double.infinity,
+                          height: 56,
+                          child: ElevatedButton(
+                            onPressed: _submitting ? null : _submit,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: primary,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              elevation: 4,
+                            ),
+                            child: _submitting
+                                ? const CircularProgressIndicator(color: Colors.white)
+                                : const Text('ĐĂNG KÝ NGAY', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 1.2)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
